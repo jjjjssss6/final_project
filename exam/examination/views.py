@@ -267,32 +267,36 @@ def DownloadTestset(request):
         download_testset_resp['err_msg'] = '票据验证失败'
         return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
 
-    ques_id = download_testset_req.get('ques_id', None)
-    if (ques_id == None):
-        upload_testset_resp['err_msg'] = '题目id为空'
+    test_set_id = download_testset_req.get('test_set_id', None)
+    if (test_set_id == None):
+        upload_testset_resp['err_msg'] = '测试集id为空'
         return HttpResponse(json.dumps(upload_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
 
-    try:
-        if examination.models.Question.objects.filter(ques_id=ques_id).values()[0]['ques_type'] != 4:
-            download_testset_resp['err_msg'] = '非编程题没有测试集'
-            return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
-    except Exception:
-        download_testset_resp['err_msg'] = '题目信息不存在'
+    test_set_detail = examination.models.TestSet.objects.filter(test_set_id=test_set_id).values()
+    if test_set_detail.count() == 0:
+        download_testset_resp['err_msg'] = '测试集不存在'
         return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
 
-    file_name = ''
-    testset_type = download_testset_req.get('testset_type', None)
-    if (testset_type == None):
+
+    argv = 'test_set_'
+    test_set_type = download_testset_req.get('test_set_type', None)
+    if (test_set_type == None):
         download_testset_resp['err_msg'] = '测试集类型为空'
         return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
-    if (testset_type != '1' and testset_type != '2'):
+    if (test_set_type != '1' and test_set_type != '2'):
         upload_testset_resp['err_msg'] = '测试集类型未知'
         return HttpResponse(json.dumps(upload_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
-    elif (testset_type == '1'):
-        file_name = '输入.txt'
-    elif (testset_type == '2'):
-        file_name = '输出.txt'
-    file_path = '/home/ubuntu/final_project/exam/media/testset/' + str(ques_id) + '/' + testset_type + '/' + file_name
+    elif (test_set_type == '1'):
+        argv = argv + 'input'
+    elif (test_set_type == '2'):
+        argv = argv + 'output'
+    test_set_no = download_testset_req.get('test_set_no', None)
+    if (test_set_no == None):
+        download_testset_resp['err_msg'] = '测试集组数为空'
+        return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
+    argv = argv + str(test_set_no)
+
+    file_path = '/home/ubuntu/final_project/exam/media/' + test_set_detail[0][argv]
     with open(file_path, 'rb') as f:
         try:
             response = HttpResponse(f)
@@ -303,3 +307,50 @@ def DownloadTestset(request):
             download_student_exam_resp['err_msg'] = '文件下载失败'
             return HttpResponse(json.dumps(download_student_exam_resp, cls=ComplexEncoder, ensure_ascii=False))
 
+def GetTestSet(request):
+    get_test_set_resp = {}
+    get_test_set_req = json.loads(request.body.decode('utf_8'))
+    ticket = get_test_set_req.get('ticket')
+    account_name = ''
+    account_name = TeacherAccount.logic.CheckTicket(ticket)
+    try:
+        account_name = TeacherAccount.logic.CheckTicket(ticket)
+    except Exception:
+        get_test_set_resp['err_msg'] = '票据验证失败'
+        return HttpResponse(json.dumps(get_test_set_resp, cls=ComplexEncoder, ensure_ascii=False))
+    if (account_name == ''):
+        get_test_set_resp['err_msg'] = '票据验证失败'
+        return HttpResponse(json.dumps(get_test_set_resp, cls=ComplexEncoder, ensure_ascii=False))
+
+    test_set_id = get_test_set_req.get('test_set_id', None)
+    if (test_set_id == None):
+        get_test_set_resp['err_msg'] = '测试集id为空'
+        return HttpResponse(json.dumps(get_test_set_resp, cls=ComplexEncoder, ensure_ascii=False))
+    test_set_detail = examination.models.TestSet.objects.filter(test_set_id=test_set_id).values()
+    if test_set_detail.count() == 0:
+        download_testset_resp['err_msg'] = '测试集不存在'
+        return HttpResponse(json.dumps(download_testset_resp, cls=ComplexEncoder, ensure_ascii=False))
+    real_test_set_detail = test_set_detail[0]
+    for i in range(1, 6, 1):
+        argv_in = 'test_set_input' + str(i)
+        argv_out = 'test_set_output' + str(i)
+        if (real_test_set_detail[argv_in] == '' or real_test_set_detail[argv_out] == ''):
+            continue
+        file_path_in = '/home/ubuntu/final_project/exam/media/' + real_test_set_detail[argv_in]
+        file_path_out = '/home/ubuntu/final_project/exam/media/' + real_test_set_detail[argv_out]
+        with open(file_path_in, 'r') as f:
+            res = str(f.readlines())
+            print(res)
+            res = res.strip("\n")
+            print(res)
+            real_test_set_detail[argv_in + '_detail'] = res
+        with open(file_path_out, 'r') as f:
+            res = str(f.readlines())
+            print(res)
+            res = res.strip("\n")
+            print(res)
+            real_test_set_detail[argv_out + '_detail'] = res
+
+    get_test_set_resp['err_msg'] = '获取测试集成功'
+    get_test_set_resp['test_set_detail'] = real_test_set_detail
+    return HttpResponse(json.dumps(get_test_set_resp, cls=ComplexEncoder, ensure_ascii=False))
