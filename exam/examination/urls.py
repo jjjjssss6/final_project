@@ -11,5 +11,5 @@ urlpatterns = [
     path('get_question', examination.views.GetQuestion),
     path('upload_testset', examination.views.UploadTestset),
     path('download_testset', examination.views.DownloadTestset),
-
+    path('get_test_set', examination.views.GetTestSet),
 ]
