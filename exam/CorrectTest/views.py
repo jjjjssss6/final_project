@@ -195,19 +195,92 @@ def GetCorrectQues(request):
         paper_ques_id_list.append(paper_ques_detail['id'])
 
     correct_info_list = list(CorrectTest.models.CorrectTestDetail.objects.filter(teacher_correct_details_id__in=teacher_correction_id_list,ques_detail_id__in=paper_ques_id_list)
-                                                                            .order_by('ques_detail_id', 'teacher_correct_details_id').values())
+                                                                     .order_by('ques_detail_id', 'teacher_correct_details_id').values())
     index = 0
+    student_account_id = get_correct_ques_req.get('student_account_id', None)
+    ques_id = get_correct_ques_req.get('ques_id', None)
+
+
     real_correct_info_list = []
     for correct_info in correct_info_list:
         real_correct_info = correct_info
-        real_correct_info['ques_detail'] = GetPaperQuesById(correct_info['id'])
+        real_correct_info['ques_detail'] = GetPaperQuesById(correct_info['ques_detail_id'])
         real_correct_info['teacher_correct_details'] = GetStudentInfoAndTeacherNameByCorrectionId(correct_info['teacher_correct_details_id'])
         real_correct_info['recheck_teacher_name'] = GetUserNameById(correct_info['recheck_teacher_detail_id'])
-        real_correct_info_list.append(real_correct_info)
         index = index + 1
+        if student_account_id != None and real_correct_info['teacher_correct_details']['student_info']['id'] != student_account_id:
+            continue
+        if ques_id != None and real_correct_info['ques_detail']['id'] != ques_id:
+            continue
+        real_correct_info_list.append(real_correct_info)
+
     get_correct_ques_resp['err_msg'] = '判题记录获取成功'
     get_correct_ques_resp['correct_info_list'] = real_correct_info_list
     return HttpResponse(json.dumps(get_correct_ques_resp, cls=ComplexEncoder, ensure_ascii=False))
+
+def GetGradeTable(request):
+    get_grade_table_req = json.loads(request.body.decode('utf_8'))
+    get_grade_table_resp = {}
+    ticket = get_grade_table_req.get('ticket')
+    account_name = ''
+    account_name = TeacherAccount.logic.CheckTicket(ticket)
+    try:
+        account_name = TeacherAccount.logic.CheckTicket(ticket)
+    except Exception:
+        get_grade_table_resp['err_msg'] = '票据验证失败'
+        return HttpResponse(json.dumps(get_grade_table_resp, cls=ComplexEncoder, ensure_ascii=False))
+    if (account_name == ''):
+        get_grade_table_resp['err_msg'] = '票据验证失败'
+        return HttpResponse(json.dumps(get_grade_table_resp, cls=ComplexEncoder, ensure_ascii=False))
+
+    paper_id = get_grade_table_req.get('paper_id', None)
+    if paper_id == None:
+        get_grade_table_resp['err_msg'] = 'paper id为空'
+        return HttpResponse(json.dumps(get_grade_table_resp, cls=ComplexEncoder, ensure_ascii=False))
+    paper_ques_id_list = []
+    paper_ques_detail_list = examination.models.PaperIncludingQuestions.objects.filter(
+        paper_detial_id=paper_id).values()
+    for paper_ques_detail in paper_ques_detail_list:
+        paper_ques_id_list.append(paper_ques_detail['id'])
+    correct_info_list = list(
+        CorrectTest.models.CorrectTestDetail.objects.filter(ques_detail_id__in=paper_ques_id_list)
+        .order_by('ques_detail_id', 'teacher_correct_details_id').values())
+    map_student_info = {}
+    map_ques_detail = {}
+    map_score_detail = {}
+    real_correct_info_list = []
+    for correct_info in correct_info_list:
+        real_correct_info = correct_info
+        real_correct_info['ques_detail'] = GetPaperQuesById(correct_info['ques_detail_id'])
+        map_ques_detail[real_correct_info['ques_detail']['id']] = real_correct_info['ques_detail']
+        real_correct_info['teacher_correct_details'] = GetStudentInfoAndTeacherNameByCorrectionId(
+            correct_info['teacher_correct_details_id'])
+        map_student_info[real_correct_info['teacher_correct_details']['student_info']['id']] = real_correct_info['teacher_correct_details']['student_info']
+        map_student_info[real_correct_info['teacher_correct_details']['student_info']['id']]['teacher_name'] = real_correct_info['teacher_correct_details']['teacher_name']
+        real_correct_info['recheck_teacher_name'] = GetUserNameById(correct_info['recheck_teacher_detail_id'])
+        map_score_detail[str(correct_info['ques_detail_id']) + '_' + str(real_correct_info['teacher_correct_details']['student_info']['id'])] = real_correct_info['student_score']
+        real_correct_info_list.append(real_correct_info)
+
+    index = 0
+    grade_table = []
+    for student_info in map_student_info.values():
+        index = index + 1
+        student_grade = {}
+        student_grade['id'] = index
+        student_grade['student_id'] = student_info['student_id']
+        student_grade['name'] = student_info['student_name']
+        student_grade['dept'] = student_info['student_dept']
+        total_score = 0
+        for ques_info in map_ques_detail.values():
+            student_grade[ques_info['ques_name_in_paper']] = map_score_detail[str(ques_info['id']) + '_' + str(student_info['id'])]
+            total_score = total_score + map_score_detail[str(ques_info['id']) + '_' + str(student_info['id'])]
+        student_grade['total_score'] = total_score
+        student_grade['teacher_name'] = student_info['teacher_name']
+        grade_table.append(student_grade)
+
+    get_grade_table_resp['err_msg'] = '成绩表获取成功'
+    get_grade_table_resp['grade_table'] = grade_table
+    return HttpResponse(json.dumps(get_grade_table_resp, cls=ComplexEncoder, ensure_ascii=False))
 
 
 def SubmitJudgeMission(request):
@@ -275,8 +348,8 @@ def SubmitJudgeMission(request):
     test_set_detail = test_set_detail[0]
 
     url = 'http://127.0.0.1:2358/submissions'
-    is_async = submit_judge_mission_req.get('is_async', 'False')
-    if is_async == 'False':
+    is_async = submit_judge_mission_req.get('is_async', False)
+    if is_async == False:
         url = url + '?wait=true'
     result_list = []
     for i in range(1, 6, 1):
